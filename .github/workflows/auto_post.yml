@@ -1,0 +1,42 @@
+name: Auto Article Post
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+    - cron: '0 0 * * 3'
+    - cron: '0 0 * * 5'
+  workflow_dispatch:
+
+jobs:
+  generate-and-post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存パッケージをインストール
+        run: |
+          pip install anthropic requests
+
+      - name: 記事を自動生成・投稿
+        env:
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          WP_URL: ${{ secrets.WP_URL }}
+          WP_USERNAME: ${{ secrets.WP_USERNAME }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+        run: |
+          python scripts/auto_post_v2.py
+
+      - name: 生成記事をコミット（バックアップ）
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add generated_*.md || true
+          git diff --staged --quiet || git commit -m "Auto: 記事生成 $(date '+%Y-%m-%d')"
+          git push || true
