@@ -1,0 +1,40 @@
+name: 毎日10記事自動投稿
+
+on:
+  schedule:
+    # 毎朝9時（JST）= UTC 0時に実行
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # 手動実行も可能
+
+jobs:
+  auto-post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存パッケージをインストール
+        run: pip install anthropic
+
+      - name: 自動投稿スクリプトを実行
+        env:
+          WP_URL:        ${{ secrets.WP_URL }}
+          WP_USERNAME:   ${{ secrets.WP_USERNAME }}
+          WP_PASSWORD:   ${{ secrets.WP_PASSWORD }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+        run: python auto_post_daily.py
+
+      - name: topics.json の変更をコミット
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add topics.json
+          git diff --staged --quiet || git commit -m "chore: mark posted topics [$(date +%Y-%m-%d)]"
+          git push
