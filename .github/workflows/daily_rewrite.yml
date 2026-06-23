@@ -1,0 +1,42 @@
+name: 毎日競合分析リライト
+
+on:
+  schedule:
+    # 毎朝10時（JST）= UTC 1時に実行（自動投稿の1時間後）
+    - cron: '0 1 * * *'
+  workflow_dispatch:  # 手動実行も可能
+
+jobs:
+  rewrite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存パッケージをインストール
+        run: pip install anthropic requests beautifulsoup4 lxml duckduckgo-search
+
+      - name: 競合分析リライトスクリプトを実行
+        env:
+          WP_URL:        ${{ secrets.WP_URL }}
+          WP_USERNAME:   ${{ secrets.WP_USERNAME }}
+          WP_PASSWORD:   ${{ secrets.WP_PASSWORD }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+        run: python rewrite_daily.py
+
+      - name: rewrite_state.json の変更をコミット
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add rewrite_state.json
+          git diff --staged --quiet || git commit -m "chore: update rewrite state [$(date +%Y-%m-%d)]"
+          git push
