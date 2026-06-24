@@ -1,0 +1,41 @@
+name: IndexNow URL送信
+
+on:
+  workflow_dispatch: {}          # 手動実行
+  schedule:
+    # 毎週月曜 AM9:00 JST（UTC 0:00）に自動送信
+    - cron: '0 0 * * 1'
+
+jobs:
+  indexnow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存パッケージをインストール
+        run: pip install requests
+
+      - name: IndexNow で全記事URLを送信
+        env:
+          WP_URL:       ${{ secrets.WP_URL }}
+          WP_USERNAME:  ${{ secrets.WP_USERNAME }}
+          WP_PASSWORD:  ${{ secrets.WP_PASSWORD }}
+          SITE_URL:     ${{ secrets.WP_URL }}
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+        run: python indexnow_submit.py
+
+      - name: レポートをコミット
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add indexnow_report.json 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "chore: indexnow report [$(date +%Y-%m-%d)]"
+          git diff HEAD~1..HEAD --quiet 2>/dev/null || git push || true
