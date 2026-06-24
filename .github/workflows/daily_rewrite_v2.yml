@@ -2,6 +2,7 @@ name: 毎日品質改善リライト（3記事/日）
 
 on:
   schedule:
+    # 毎朝10時JST（UTC 1:00）= 投稿の1時間後
     - cron: '0 1 * * *'
   workflow_dispatch:
     inputs:
@@ -22,11 +23,16 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install anthropic requests beautifulsoup4 lxml duckduckgo-search
+
+      - name: 依存パッケージをインストール
+        run: pip install anthropic requests beautifulsoup4 lxml duckduckgo-search
 
       - name: 品質改善リライトを実行
         env:
@@ -46,6 +52,6 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add rewrite_state.json
+          git add rewrite_state.json 2>/dev/null || true
           git diff --staged --quiet || git commit -m "chore: update rewrite state [$(date +%Y-%m-%d)]"
-          git push
+          git diff HEAD~1..HEAD --quiet 2>/dev/null || git push || true
