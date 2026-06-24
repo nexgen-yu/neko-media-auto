@@ -1,0 +1,51 @@
+name: 毎日品質改善リライト（3記事/日）
+
+on:
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '実行モード: daily=3記事, all=全18記事'
+        required: false
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - all
+
+jobs:
+  rewrite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install anthropic requests beautifulsoup4 lxml duckduckgo-search
+
+      - name: 品質改善リライトを実行
+        env:
+          WP_URL:         ${{ secrets.WP_URL }}
+          WP_USERNAME:    ${{ secrets.WP_USERNAME }}
+          WP_PASSWORD:    ${{ secrets.WP_PASSWORD }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+        run: |
+          MODE="${{ github.event.inputs.mode || 'daily' }}"
+          if [ "$MODE" = "all" ]; then
+            python batch_rewrite.py --all
+          else
+            python batch_rewrite.py --daily 3
+          fi
+
+      - name: 状態ファイルをコミット
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add rewrite_state.json
+          git diff --staged --quiet || git commit -m "chore: update rewrite state [$(date +%Y-%m-%d)]"
+          git push
