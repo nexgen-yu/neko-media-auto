@@ -1,0 +1,40 @@
+name: 毎日品質チェック＆自動修正
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  quality-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存パッケージをインストール
+        run: pip install requests
+
+      - name: 品質チェック＆自動修正を実行
+        env:
+          WP_URL:      ${{ secrets.WP_URL }}
+          WP_USERNAME: ${{ secrets.WP_USERNAME }}
+          WP_PASSWORD: ${{ secrets.WP_PASSWORD }}
+        run: python daily_qc.py
+
+      - name: QCレポートをコミット
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add qc_report.json 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "chore: qc report [$(date +%Y-%m-%d)]"
+          git diff HEAD~1..HEAD --quiet 2>/dev/null || git push || true
