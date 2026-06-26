@@ -1,0 +1,28 @@
+name: 内部リンク自動追加
+
+on:
+  workflow_dispatch:
+
+jobs:
+  add-links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存パッケージをインストール
+        run: pip install beautifulsoup4
+
+      - name: 内部リンク自動追加
+        env:
+          WP_URL:      ${{ secrets.WP_URL }}
+          WP_USERNAME: ${{ secrets.WP_USERNAME }}
+          WP_PASSWORD: ${{ secrets.WP_PASSWORD }}
+        run: python add_internal_links.py
