@@ -1,0 +1,29 @@
+name: PDCA記事改善
+
+on:
+  workflow_dispatch:  # 手動実行のみ
+
+jobs:
+  pdca-improve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存パッケージをインストール
+        run: pip install anthropic beautifulsoup4
+
+      - name: PDCA記事改善実行
+        env:
+          WP_URL:        ${{ secrets.WP_URL }}
+          WP_USERNAME:   ${{ secrets.WP_USERNAME }}
+          WP_PASSWORD:   ${{ secrets.WP_PASSWORD }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+        run: python pdca_improve.py
