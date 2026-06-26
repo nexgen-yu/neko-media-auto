@@ -1,10 +1,10 @@
 name: IndexNow URL送信
 
 on:
-  workflow_dispatch: {}          # 手動実行
+  workflow_dispatch: {}          # 手動実行h
   schedule:
     # 毎週月曜 AM9:00 JST（UTC 0:00）に自動送信
-    - cron: '0 0 * * 1'
+    - cron: '0 0 * * *'
 
 jobs:
   indexnow:
