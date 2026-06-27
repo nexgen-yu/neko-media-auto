@@ -27,6 +27,7 @@ CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
 # 改善対象記事ID（主要記事を優先）
 TARGET_POST_IDS = [6, 7, 8, 9, 10, 11, 12, 42]
 
+# IRISステージ分類表（エビデンスベース）
 IRIS_TABLE_HTML = """
 <div class="iris-stage-table" style="margin: 2em 0; padding: 1.5em; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #4a90d9;">
   <h3 style="color: #2c3e50; margin-top: 0;">🔬 IRISステージ分類（2023年改訂版）</h3>
@@ -71,10 +72,11 @@ IRIS_TABLE_HTML = """
       </tr>
     </tbody>
   </table>
-  <p style="font-size: 0.8em; color: #666; margin-top: 0.5em;">※ 参考：IRIS 2023年ガイドライン、WSAVA 2022年改訂</p>
+  <p style="font-size: 0.8em; color: #666; margin-top: 0.5em;">※ 参考：IRIS（International Renal Interest Society）2023年ガイドライン、WSAVA 2022年改訂</p>
 </div>
 """
 
+# AIM薬セクション
 AIM_SECTION_HTML = """
 <div class="aim-drug-info" style="margin: 2em 0; padding: 1.5em; background: #e8f4fd; border-radius: 8px; border-left: 4px solid #1976d2;">
   <h3 style="color: #1565c0; margin-top: 0;">💊 【2026年最新】AIM薬（猫腎臓病新薬）の現状</h3>
@@ -91,12 +93,14 @@ AIM_SECTION_HTML = """
 </div>
 """
 
+# 医療免責事項
 DISCLAIMER_HTML = """
 <div class="medical-disclaimer" style="margin-bottom: 2em; padding: 1em; background: #fff8e1; border-radius: 6px; border: 1px solid #ffcc02; font-size: 0.9em;">
   <strong>⚠️ 医療免責事項：</strong>本記事は一般的な情報提供を目的としており、獣医師による診断・治療の代替となるものではありません。猫の健康状態については、必ず資格を持つ獣医師にご相談ください。
 </div>
 """
 
+# 腸腎連関の説明テキスト
 GUT_KIDNEY_NOTE = """
 <div class="gut-kidney-note" style="margin: 1.5em 0; padding: 1em; background: #f3e5f5; border-radius: 6px; border-left: 3px solid #9c27b0;">
   <p style="margin: 0;"><strong>🦠 腸腎連関（Gut-Kidney Axis）とは？</strong><br>
@@ -105,34 +109,94 @@ GUT_KIDNEY_NOTE = """
 """
 
 
-def get_auth_headers():
-    """WordPress REST API 認証ヘッダー（Basic Auth / Application Password）"""
-    credentials = f"{WP_USERNAME}:{WP_PASSWORD}"
-    token = base64.b64encode(credentials.encode()).decode()
-    return {
-        "Authorization": f"Basic {token}",
-        "Content-Type": "application/json",
-    }
+# グローバルセッション（Cookie認証用）
+_wp_session = None
+_wp_nonce = None
+
+
+def get_wp_session():
+    """WordPress Cookie認証でセッション取得"""
+    session = requests.Session()
+    login_url = f"{WP_URL.rstrip('/')}/wp-login.php"
+
+    # Step1: GETしてtestcookieを設定
+    session.get(login_url, timeout=30)
+
+    # Step2: POSTログイン
+    resp = session.post(login_url, data={
+        'log': WP_USERNAME,
+        'pwd': WP_PASSWORD,
+        'wp-submit': 'Log In',
+        'redirect_to': '/wp-admin/',
+        'testcookie': '1',
+    }, timeout=30, allow_redirects=True)
+
+    # ログイン成功確認
+    logged_in = any('wordpress_logged_in' in k for k in session.cookies.keys())
+    if not logged_in:
+        raise ConnectionError(f"Cookie認証失敗: status={resp.status_code}")
+
+    return session
+
+
+def get_nonce_from_admin(session):
+    """wp-admin/index.phpからREST API nonceを取得"""
+    resp = session.get(f"{WP_URL.rstrip('/')}/wp-admin/index.php", timeout=30)
+
+    # wpApiSettings の nonce を検索
+    patterns = [
+        r'"nonce"\s*:\s*"([a-f0-9]+)"',
+        r'wpApiSettings\s*=\s*\{[^}]*"nonce"\s*:\s*"([^"]+)"',
+        r'wp\.apiFetch\.use.*?"nonce"\s*:\s*"([^"]+)"',
+        r'X-WP-Nonce["\s:]+([a-f0-9]+)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, resp.text)
+        if match:
+            return match.group(1)
+
+    # フォールバック: admin-ajax経由
+    resp2 = session.post(
+        f"{WP_URL.rstrip('/')}/wp-admin/admin-ajax.php",
+        data={'action': 'rest-nonce'},
+        timeout=30
+    )
+    if resp2.status_code == 200 and resp2.text and resp2.text != '-1':
+        return resp2.text.strip()
+
+    return None
+
+
+def init_wp_auth():
+    """WordPress認証を初期化（グローバルセッション・nonce設定）"""
+    global _wp_session, _wp_nonce
+    if not all([WP_URL, WP_USERNAME, WP_PASSWORD]):
+        raise ValueError("WP_URL, WP_USERNAME, WP_PASSWORD が未設定")
+
+    _wp_session = get_wp_session()
+    _wp_nonce = get_nonce_from_admin(_wp_session)
+
+    if _wp_nonce:
+        print(f"✅ WordPress 接続成功 (Cookie認証 + nonce取得)")
+    else:
+        print(f"✅ WordPress 接続成功 (Cookie認証 / nonce未取得)")
 
 
 def test_wp_connection():
     """接続テスト"""
-    if not all([WP_URL, WP_USERNAME, WP_PASSWORD]):
-        raise ValueError("WP_URL, WP_USERNAME, WP_PASSWORD が未設定")
-    url = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/users/me"
-    resp = requests.get(url, headers=get_auth_headers(), timeout=30)
-    if resp.status_code == 200:
-        print(f"✅ WordPress 接続成功 (REST API)")
-    else:
-        raise ConnectionError(f"接続失敗: {resp.status_code} {resp.text[:200]}")
+    init_wp_auth()
 
 
 def get_post(post_id):
-    """記事を取得（REST API）"""
+    """記事を取得（REST API + Cookie認証）"""
     url = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/posts/{post_id}"
+    headers = {"Content-Type": "application/json"}
+    if _wp_nonce:
+        headers["X-WP-Nonce"] = _wp_nonce
+
     try:
-        resp = requests.get(url, headers=get_auth_headers(), timeout=30,
-                            params={"context": "edit"})
+        resp = _wp_session.get(url, headers=headers, timeout=30,
+                               params={"context": "edit"})
         if resp.status_code == 200:
             data = resp.json()
             return {
@@ -165,6 +229,7 @@ def needs_improvement(content, improvement_type):
 def enhance_content_with_claude(title, content):
     """Claude APIでFAQセクションを強化・生成"""
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+
     prompt = f"""以下の猫健康メディア記事のタイトルと内容を見て、SEOに強い高品質なFAQセクションを5問生成してください。
 
 タイトル: {title}
@@ -187,6 +252,7 @@ def enhance_content_with_claude(title, content):
   </div>
   ...（Q5まで）
 </div>"""
+
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -200,11 +266,16 @@ def enhance_content_with_claude(title, content):
 
 
 def update_post_content(post_id, content):
-    """記事を更新（REST API）"""
+    """記事を更新（REST API + Cookie認証）"""
     url = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/posts/{post_id}"
-    data = {"content": content}
+    headers = {"Content-Type": "application/json"}
+    if _wp_nonce:
+        headers["X-WP-Nonce"] = _wp_nonce
+
     try:
-        resp = requests.post(url, headers=get_auth_headers(), json=data, timeout=60)
+        resp = _wp_session.post(url, headers=headers, json={"content": content}, timeout=60)
+        if resp.status_code != 200:
+            print(f"  ❌ 更新失敗 ({resp.status_code}): {resp.text[:200]}")
         return resp.status_code == 200
     except Exception as e:
         print(f"  ❌ 更新エラー: {e}")
@@ -214,30 +285,42 @@ def update_post_content(post_id, content):
 def improve_post(post_id):
     """記事を改善"""
     print(f"\n📝 ID:{post_id} 処理中...")
+
     post = get_post(post_id)
     if not post:
         return False
+
     title = post.get("post_title", "")
     content = post.get("post_content", "")
+
     print(f"  タイトル: {title[:50]}...")
+
+    original_content = content
     improvements = []
 
+    # 1. 医療免責事項を先頭に追加
     if needs_improvement(content, "disclaimer"):
         content = DISCLAIMER_HTML + content
         improvements.append("免責事項")
 
+    # 2. IRISステージ分類表を追加（腎臓病関連記事のみ）
     if needs_improvement(content, "iris_table") and ("腎臓" in title or "CKD" in title or "ステージ" in title):
+        # <h2>の最初の見出しの後に挿入
         h2_match = re.search(r'</h2>', content)
         if h2_match:
             insert_pos = h2_match.end()
             content = content[:insert_pos] + "\n" + IRIS_TABLE_HTML + content[insert_pos:]
             improvements.append("IRISステージ表")
 
+    # 3. AIM薬情報を追加（腎臓病記事のみ）
     if needs_improvement(content, "aim") and "腎臓" in title:
+        # 記事の最後（</div>や終端の手前）に追加
         content = content + "\n" + AIM_SECTION_HTML
         improvements.append("AIM薬情報")
 
+    # 4. 腸腎連関の言及を追加（腎臓病記事のみ）
     if needs_improvement(content, "gut_kidney") and "腎臓" in title:
+        # AIM薬情報の前に追加
         if "aim-drug-info" in content:
             content = content.replace(
                 '<div class="aim-drug-info"',
@@ -247,6 +330,7 @@ def improve_post(post_id):
             content = content + "\n" + GUT_KIDNEY_NOTE
         improvements.append("腸腎連関")
 
+    # 5. FAQセクションを生成・追加（まだFAQがない場合）
     if "faq-section" not in content and CLAUDE_API_KEY:
         print(f"  🤖 Claude でFAQ生成中...")
         faq_html = enhance_content_with_claude(title, content)
@@ -258,6 +342,7 @@ def improve_post(post_id):
         print(f"  ✅ 改善不要（既に最新）")
         return True
 
+    # WordPress に更新
     if update_post_content(post_id, content):
         print(f"  ✅ 更新完了: {', '.join(improvements)}")
         return True
