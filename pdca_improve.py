@@ -22,6 +22,7 @@ from datetime import datetime
 WP_URL = os.environ.get("WP_URL", "")
 WP_USERNAME = os.environ.get("WP_USERNAME", "")
 WP_PASSWORD = os.environ.get("WP_PASSWORD", "")
+WP_APP_PASSWORD = os.environ.get("WP_APP_PASSWORD", WP_PASSWORD)  # Application Password優先
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
 
 # 改善対象記事ID（主要記事を優先）
@@ -109,94 +110,31 @@ GUT_KIDNEY_NOTE = """
 """
 
 
-# グローバルセッション（Cookie認証用）
-_wp_session = None
-_wp_nonce = None
-
-
-def get_wp_session():
-    """WordPress Cookie認証でセッション取得"""
-    session = requests.Session()
-    login_url = f"{WP_URL.rstrip('/')}/wp-login.php"
-
-    # Step1: GETしてtestcookieを設定
-    session.get(login_url, timeout=30)
-
-    # Step2: POSTログイン
-    resp = session.post(login_url, data={
-        'log': WP_USERNAME,
-        'pwd': WP_PASSWORD,
-        'wp-submit': 'Log In',
-        'redirect_to': '/wp-admin/',
-        'testcookie': '1',
-    }, timeout=30, allow_redirects=True)
-
-    # ログイン成功確認
-    logged_in = any('wordpress_logged_in' in k for k in session.cookies.keys())
-    if not logged_in:
-        raise ConnectionError(f"Cookie認証失敗: status={resp.status_code}")
-
-    return session
-
-
-def get_nonce_from_admin(session):
-    """wp-admin/index.phpからREST API nonceを取得"""
-    resp = session.get(f"{WP_URL.rstrip('/')}/wp-admin/index.php", timeout=30)
-
-    # wpApiSettings の nonce を検索
-    patterns = [
-        r'"nonce"\s*:\s*"([a-f0-9]+)"',
-        r'wpApiSettings\s*=\s*\{[^}]*"nonce"\s*:\s*"([^"]+)"',
-        r'wp\.apiFetch\.use.*?"nonce"\s*:\s*"([^"]+)"',
-        r'X-WP-Nonce["\s:]+([a-f0-9]+)',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, resp.text)
-        if match:
-            return match.group(1)
-
-    # フォールバック: admin-ajax経由
-    resp2 = session.post(
-        f"{WP_URL.rstrip('/')}/wp-admin/admin-ajax.php",
-        data={'action': 'rest-nonce'},
-        timeout=30
-    )
-    if resp2.status_code == 200 and resp2.text and resp2.text != '-1':
-        return resp2.text.strip()
-
-    return None
-
-
-def init_wp_auth():
-    """WordPress認証を初期化（グローバルセッション・nonce設定）"""
-    global _wp_session, _wp_nonce
-    if not all([WP_URL, WP_USERNAME, WP_PASSWORD]):
-        raise ValueError("WP_URL, WP_USERNAME, WP_PASSWORD が未設定")
-
-    _wp_session = get_wp_session()
-    _wp_nonce = get_nonce_from_admin(_wp_session)
-
-    if _wp_nonce:
-        print(f"✅ WordPress 接続成功 (Cookie認証 + nonce取得)")
-    else:
-        print(f"✅ WordPress 接続成功 (Cookie認証 / nonce未取得)")
+def get_auth():
+    """Application Password認証（Basic Auth）"""
+    # Application PasswordはスペースなしでOK
+    app_pw = WP_APP_PASSWORD.replace(" ", "")
+    return (WP_USERNAME, app_pw)
 
 
 def test_wp_connection():
-    """接続テスト"""
-    init_wp_auth()
+    """接続テスト（Application Password認証）"""
+    if not all([WP_URL, WP_USERNAME, WP_APP_PASSWORD]):
+        raise ValueError("WP_URL, WP_USERNAME, WP_APP_PASSWORD が未設定")
+    url = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/users/me"
+    resp = requests.get(url, auth=get_auth(), timeout=30)
+    if resp.status_code == 200:
+        print(f"✅ WordPress 接続成功 (Application Password認証)")
+    else:
+        raise ConnectionError(f"認証失敗: status={resp.status_code}, {resp.text[:200]}")
 
 
 def get_post(post_id):
-    """記事を取得（REST API + Cookie認証）"""
+    """記事を取得（REST API + Application Password認証）"""
     url = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/posts/{post_id}"
-    headers = {"Content-Type": "application/json"}
-    if _wp_nonce:
-        headers["X-WP-Nonce"] = _wp_nonce
-
     try:
-        resp = _wp_session.get(url, headers=headers, timeout=30,
-                               params={"context": "edit"})
+        resp = requests.get(url, auth=get_auth(), timeout=30,
+                            params={"context": "edit"})
         if resp.status_code == 200:
             data = resp.json()
             return {
@@ -266,14 +204,10 @@ def enhance_content_with_claude(title, content):
 
 
 def update_post_content(post_id, content):
-    """記事を更新（REST API + Cookie認証）"""
+    """記事を更新（REST API + Application Password認証）"""
     url = f"{WP_URL.rstrip('/')}/wp-json/wp/v2/posts/{post_id}"
-    headers = {"Content-Type": "application/json"}
-    if _wp_nonce:
-        headers["X-WP-Nonce"] = _wp_nonce
-
     try:
-        resp = _wp_session.post(url, headers=headers, json={"content": content}, timeout=60)
+        resp = requests.post(url, auth=get_auth(), json={"content": content}, timeout=60)
         if resp.status_code != 200:
             print(f"  ❌ 更新失敗 ({resp.status_code}): {resp.text[:200]}")
         return resp.status_code == 200
