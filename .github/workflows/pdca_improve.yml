@@ -18,7 +18,7 @@ jobs:
           python-version: '3.11'
 
       - name: 依存パッケージをインストール
-        run: pip install anthropic beautifulsoup4
+        run: pip install anthropic requests
 
       - name: PDCA記事改善実行
         env:
