@@ -22,8 +22,8 @@ jobs:
 
       - name: PDCA記事改善実行
         env:
-          WP_URL:        ${{ secrets.WP_URL }}
-          WP_USERNAME:   ${{ secrets.WP_USERNAME }}
-          WP_PASSWORD:   ${{ secrets.WP_PASSWORD }}
-          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          WP_URL:          ${{ secrets.WP_URL }}
+          WP_USERNAME:     ${{ secrets.WP_USERNAME }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          CLAUDE_API_KEY:  ${{ secrets.CLAUDE_API_KEY }}
         run: python pdca_improve.py
