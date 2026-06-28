@@ -21,13 +21,13 @@ jobs:
           python-version: '3.11'
 
       - name: 依存パッケージをインストール
-        run: pip install tweepy anthropic beautifulsoup4
+        run: pip install tweepy anthropic beautifulsoup4 requests
 
       - name: X自動投稿（新記事3件まで）
         env:
           WP_URL:               ${{ secrets.WP_URL }}
           WP_USERNAME:          ${{ secrets.WP_USERNAME }}
-          WP_PASSWORD:          ${{ secrets.WP_PASSWORD }}
+          WP_APP_PASSWORD:      ${{ secrets.WP_APP_PASSWORD }}
           CLAUDE_API_KEY:       ${{ secrets.CLAUDE_API_KEY }}
           X_API_KEY:            ${{ secrets.X_API_KEY }}
           X_API_SECRET:         ${{ secrets.X_API_SECRET }}
