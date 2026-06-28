@@ -2,9 +2,8 @@ name: 毎日10記事自動投稿
 
 on:
   schedule:
-    # 毎朝9時（JST）= UTC 0時に実行
     - cron: '0 0 * * *'
-  workflow_dispatch:  # 手動実行も可能
+  workflow_dispatch:
 
 jobs:
   auto-post:
@@ -23,14 +22,14 @@ jobs:
           python-version: '3.11'
 
       - name: 依存パッケージをインストール
-        run: pip install anthropic
+        run: pip install anthropic requests
 
       - name: 自動投稿スクリプトを実行
         env:
-          WP_URL:        ${{ secrets.WP_URL }}
-          WP_USERNAME:   ${{ secrets.WP_USERNAME }}
-          WP_PASSWORD:   ${{ secrets.WP_PASSWORD }}
-          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          WP_URL:          ${{ secrets.WP_URL }}
+          WP_USERNAME:     ${{ secrets.WP_USERNAME }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          CLAUDE_API_KEY:  ${{ secrets.CLAUDE_API_KEY }}
         run: python auto_post_daily.py
 
       - name: topics.json の変更をコミット
