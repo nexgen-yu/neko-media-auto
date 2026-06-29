@@ -121,7 +121,8 @@ def note_login(email: str, password: str) -> requests.Session:
     login_page = session.get("https://note.com/login?redirectPath=%2F", timeout=15)
     login_page.raise_for_status()
 
-    csrf_match = re.search(r'<meta\s+name=["']csrf-token["']\s+content=["']([^"']+)["']', login_page.text)
+    # meta[name=csrf-token] を探す（トリプルクォートで単一引用符の衝突を回避）
+    csrf_match = re.search(r"""<meta\s+name=["']csrf-token["']\s+content=["']([^"']+)["']""", login_page.text)
     csrf_token = csrf_match.group(1) if csrf_match else ""
 
     resp = session.post(
