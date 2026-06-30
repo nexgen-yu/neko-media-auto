@@ -106,9 +106,47 @@ def save_posted_ids(ids: set):
 
 def note_login(email: str, password: str) -> requests.Session:
     """
-    Playwrightのヘッドレスブラウザでnote.comにログインし
-    セッションCookieをrequests.Sessionに移して返す。
+    note.comにログインしてrequests.Sessionを返す。
+    優先順: NOTE_COOKIES環境変数(JSON) → Playwright headful(Xvfb)
+
+    クッキー取得方法（推奨）:
+      1. ブラウザでnote.comにログイン
+      2. DevTools > Application > Cookies > note.com
+      3. 全クッキーをJSON配列で保存: [{"name":"...","value":"...","domain":"note.com"}, ...]
+      4. GitHub Secrets に NOTE_COOKIES として登録
     """
+    # ── 優先: NOTE_COOKIESからセッション復元 ──────────────────────
+    cookies_json = os.environ.get("NOTE_COOKIES", "").strip()
+    if cookies_json:
+        print("NOTE_COOKIESからセッション復元中...")
+        try:
+            cookies_list = json.loads(cookies_json)
+            session = requests.Session()
+            session.headers.update({
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept-Language": "ja,en;q=0.9",
+            })
+            for c in cookies_list:
+                session.cookies.set(
+                    c["name"], c["value"],
+                    domain=c.get("domain", ".note.com")
+                )
+            # セッション有効性チェック
+            check = session.get("https://note.com/api/v1/status", timeout=10)
+            if check.status_code == 200:
+                data = check.json().get("data", {})
+                if data.get("user_id") or data.get("status") == "active":
+                    print(f"  クッキー認証成功: user_id={data.get('user_id', '?')}")
+                    return session
+            print(f"  クッキー期限切れ({check.status_code}) → Playwrightにフォールバック")
+        except Exception as e:
+            print(f"  クッキー読み込みエラー: {e} → Playwrightにフォールバック")
+
+    # ── フォールバック: Playwright headful (Xvfb必須) ─────────────
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -116,14 +154,15 @@ def note_login(email: str, password: str) -> requests.Session:
             "playwright未インストール: pip install playwright && playwright install --with-deps chromium"
         )
 
-    print("Playwrightでnote.comにログイン中...")
+    print("Playwright(headful+Xvfb)でnote.comにログイン中...")
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
+            headless=False,   # Xvfb上でheadful実行（reCaptchaスコア改善）
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-blink-features=AutomationControlled",
+                "--disable-infobars",
             ],
         )
         context = browser.new_context(
@@ -135,7 +174,6 @@ def note_login(email: str, password: str) -> requests.Session:
             locale="ja-JP",
             viewport={"width": 1280, "height": 800},
         )
-        # webdriverプロパティを隠す（bot検出回避）
         context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
@@ -146,18 +184,26 @@ def note_login(email: str, password: str) -> requests.Session:
             page.wait_for_load_state("networkidle", timeout=15000)
             print("  ログインページ読み込み完了")
 
-            page.fill('input[placeholder="mail@example.com or note ID"]', email)
-            page.wait_for_timeout(500)
-            page.fill('input[type="password"]', password)
-            page.wait_for_timeout(500)
+            # page.type()でリアルな入力をエミュレート（bot検出回避）
+            page.click('input[placeholder="mail@example.com or note ID"]')
+            page.type('input[placeholder="mail@example.com or note ID"]', email, delay=80)
+            page.wait_for_timeout(600)
+            page.click('input[type="password"]')
+            page.type('input[type="password"]', password, delay=80)
+            page.wait_for_timeout(600)
 
-            # expect_navigationは使わず wait_for_url で待つ（reCaptcha対策）
             page.click('button:has-text("ログイン")')
-            try:
-                page.wait_for_url(lambda url: "login" not in url, timeout=45000)
-            except Exception:
+            # ナビゲーション完了を待つ（wait_for_urlはexpect_navigationを内部使用）
+            # 代わりにpollでURL変化を監視
+            import time as _time
+            deadline = _time.time() + 50
+            while _time.time() < deadline:
+                if "login" not in page.url:
+                    break
+                page.wait_for_timeout(1000)
+            else:
                 body_text = page.inner_text("body")[:500]
-                raise RuntimeError(f"note.comログイン失敗（URL変化なし）: {body_text}")
+                raise RuntimeError(f"note.comログイン失敗（タイムアウト）: {body_text}")
 
             current_url = page.url
             print(f"  ログイン後URL: {current_url}")
