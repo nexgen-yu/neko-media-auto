@@ -120,34 +120,47 @@ def note_login(email: str, password: str) -> requests.Session:
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox"],
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-blink-features=AutomationControlled",
+            ],
         )
         context = browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
+                "Chrome/124.0.0.0 Safari/537.36"
             ),
             locale="ja-JP",
+            viewport={"width": 1280, "height": 800},
+        )
+        # webdriverプロパティを隠す（bot検出回避）
+        context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
         page = context.new_page()
 
         try:
-            page.goto("https://note.com/login?redirectPath=%2F", wait_until="networkidle", timeout=30000)
+            page.goto("https://note.com/login?redirectPath=%2F", wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_load_state("networkidle", timeout=15000)
             print("  ログインページ読み込み完了")
 
             page.fill('input[placeholder="mail@example.com or note ID"]', email)
+            page.wait_for_timeout(500)
             page.fill('input[type="password"]', password)
+            page.wait_for_timeout(500)
 
-            with page.expect_navigation(wait_until="networkidle", timeout=30000):
-                page.click('button:has-text("ログイン")')
+            # expect_navigationは使わず wait_for_url で待つ（reCaptcha対策）
+            page.click('button:has-text("ログイン")')
+            try:
+                page.wait_for_url(lambda url: "login" not in url, timeout=45000)
+            except Exception:
+                body_text = page.inner_text("body")[:500]
+                raise RuntimeError(f"note.comログイン失敗（URL変化なし）: {body_text}")
 
             current_url = page.url
             print(f"  ログイン後URL: {current_url}")
-
-            if "login" in current_url:
-                body_text = page.inner_text("body")[:300]
-                raise RuntimeError(f"note.comログイン失敗: {body_text}")
 
             playwright_cookies = context.cookies()
             print(f"  note.comログイン成功: Cookie {len(playwright_cookies)}件取得")
