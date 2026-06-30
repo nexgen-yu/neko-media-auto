@@ -2,7 +2,6 @@ name: note.com自動シンジケーション
 
 on:
   schedule:
-    # 毎日 JST 11:00（UTC 2:00）に実行 ← WP投稿(9:00)の2時間後
     - cron: "0 2 * * *"
   workflow_dispatch:
 
@@ -10,7 +9,7 @@ jobs:
   syndicate:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # note_posted_ids.json をgit pushするため
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -36,50 +35,6 @@ jobs:
           NOTE_USER_URLNAME: ${{ secrets.NOTE_USER_URLNAME }}
           NOTE_COOKIES:    ${{ secrets.NOTE_COOKIES }}
         run: xvfb-run --server-args="-screen 0 1280x800x24" python note_syndication.py
-
-      - name: Commit posted IDs
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add note_posted_ids.json || true
-          git diff --staged --quiet || git commit -m "chore: update note_posted_ids $(date -u +%Y-%m-%d)"
-          git push
-name: note.com自動シンジケーション
-
-on:
-  schedule:
-    # 毎日 JST 11:00（UTC 2:00）に実行 ← WP投稿(9:00)の2時間後
-    - cron: "0 2 * * *"
-  workflow_dispatch:
-
-jobs:
-  syndicate:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write   # note_posted_ids.json をgit pushするため
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          pip install requests playwright
-          playwright install --with-deps chromium
-
-      - name: Run note syndication
-        env:
-          WP_URL:        ${{ secrets.WP_URL }}
-          WP_USERNAME:   ${{ secrets.WP_USERNAME }}
-          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
-          NOTE_EMAIL:    ${{ secrets.NOTE_EMAIL }}
-          NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
-          NOTE_USER_URLNAME: ${{ secrets.NOTE_USER_URLNAME }}
-        run: python note_syndication.py
 
       - name: Commit posted IDs
         run: |
