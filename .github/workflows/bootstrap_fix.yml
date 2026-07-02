@@ -1,0 +1,104 @@
+name: Bootstrap Fix (一回限り実行)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fix x_auto_post.yml（cronを削除・permissions追加）
+        run: |
+          cat > .github/workflows/x_auto_post.yml << 'YMLEOF'
+          name: X（Twitter）自動投稿
+
+          on:
+            workflow_dispatch: # 手動実行のみ（X API Basicプラン$100/月が必要なためcron停止中）
+
+          permissions:
+            contents: write
+
+          jobs:
+            x-post:
+              runs-on: ubuntu-latest
+              timeout-minutes: 30
+
+              steps:
+                - name: リポジトリをチェックアウト
+                  uses: actions/checkout@v4
+
+                - name: Python 3.11 セットアップ
+                  uses: actions/setup-python@v5
+                  with:
+                    python-version: '3.11'
+
+                - name: 依存パッケージをインストール
+                  run: pip install tweepy anthropic beautifulsoup4 requests
+
+                - name: X自動投稿（新記事3件まで）
+                  env:
+                    WP_URL: ${{ secrets.WP_URL }}
+                    WP_USERNAME: ${{ secrets.WP_USERNAME }}
+                    WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+                    CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+                    X_API_KEY: ${{ secrets.X_API_KEY }}
+                    X_API_SECRET: ${{ secrets.X_API_SECRET }}
+                    X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+                    X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+                  run: python x_auto_post.py --limit 3
+
+                - name: 投稿済みIDをコミット
+                  run: |
+                    git config user.name "github-actions[bot]"
+                    git config user.email "github-actions[bot]@users.noreply.github.com"
+                    git add x_posted_ids.json 2>/dev/null || true
+                    git diff --staged --quiet || git commit -m "chore: x post record [$(date +%Y-%m-%d)]"
+                    git diff HEAD~1..HEAD --quiet 2>/dev/null || git push || true
+          YMLEOF
+
+      - name: Create expand_articles.yml
+        run: |
+          cat > .github/workflows/expand_articles.yml << 'YMLEOF'
+          name: 薄い記事拡充
+
+          on:
+            workflow_dispatch:
+            schedule:
+              - cron: '0 1 * * 1'  # 毎週月曜 JST 10:00
+
+          permissions:
+            contents: write
+
+          jobs:
+            expand:
+              runs-on: ubuntu-latest
+              timeout-minutes: 60
+
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-python@v5
+                  with:
+                    python-version: '3.11'
+                - run: pip install anthropic requests
+                - name: 薄い記事を拡充
+                  env:
+                    WP_URL: ${{ secrets.WP_URL }}
+                    WP_USERNAME: ${{ secrets.WP_USERNAME }}
+                    WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+                    CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+                    MAX_ARTICLES: '5'
+                  run: python expand_thin_articles.py
+          YMLEOF
+
+      - name: Commit all changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/x_auto_post.yml .github/workflows/expand_articles.yml
+          git diff --staged --quiet || git commit -m "fix: remove x post cron, add expand_articles workflow"
+          git push
